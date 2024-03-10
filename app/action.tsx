@@ -25,6 +25,9 @@ import { StockSkeleton } from '@/components/llm-stocks/stock-skeleton';
 import { EventsSkeleton } from '@/components/llm-stocks/events-skeleton';
 import { StocksSkeleton } from '@/components/llm-stocks/stocks-skeleton';
 
+import { messageRateLimit } from "@/lib/rate-limit";
+import { headers } from "next/headers";
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY || '',
 });
@@ -99,6 +102,23 @@ async function confirmPurchase(symbol: string, price: number, amount: number) {
 async function submitUserMessage(content: string) {
   'use server';
 
+  const reply = createStreamableUI(
+    <BotMessage className="items-center">{spinner}</BotMessage>,
+  );
+
+  const ip = headers().get("x-real-ip") ?? "local";
+  const rl = await messageRateLimit.limit(ip);
+
+  if (!rl.success) {
+    reply.done(
+      <BotMessage>Rate limit exceeded. Try again in 15 minutes.</BotMessage>,
+    );
+    return {
+      id: Date.now(),
+      display: reply.value,
+    };
+  }
+
   const aiState = getMutableAIState<typeof AI>();
   aiState.update([
     ...aiState.get(),
@@ -108,9 +128,6 @@ async function submitUserMessage(content: string) {
     },
   ]);
 
-  const reply = createStreamableUI(
-    <BotMessage className="items-center">{spinner}</BotMessage>,
-  );
 
   const completion = runOpenAICompletion(openai, {
     model: 'gpt-3.5-turbo',
